@@ -13,6 +13,8 @@ import time
 from distutils.version import StrictVersion
 import signal
 import zipfile
+from threading import Timer
+import ciso8601
 
 version = StrictVersion("1.0")
 
@@ -28,7 +30,7 @@ def get_serial():
   except e:
     print e
     cpuserial = None
- 
+
   return cpuserial
 
 
@@ -72,26 +74,47 @@ for opt, arg in opts:
 print "I'm using the '%s' certificate and '%s' key to get permissions from '%s'" % (certificate, private_key, iot_credentials_endpoint)
 
 #Get access keys
-r = None
-connect_time = 0
-while not r and connect_time < 60:
-  try: 
-    r = requests.get('https://%s:443/role-aliases/%s/credentials' % (iot_credentials_endpoint, role_alias),
-                     cert=(certificate, private_key),
-                     headers={'x-amzn-iot-thingname': my_name})
-  except requests.exceptions.ConnectionError:
-    time.sleep(5)
-    connect_time += 5
+creds = None
+renew = None
+iot = None
+def get_credentials():
+  global creds, renew, iot
+  r = None
+  connect_time = 0
+  while not r and connect_time < 60:
+    try:
+      r = requests.get('https://%s:443/role-aliases/%s/credentials' % (iot_credentials_endpoint, role_alias),
+                       cert=(certificate, private_key),
+                       headers={'x-amzn-iot-thingname': my_name})
+    except requests.exceptions.ConnectionError:
+      time.sleep(5)
+      connect_time += 5
 
-if not r:
-  print "Failed to connect after 60 seconds. aborting. " + str(connect_time)
-  sys.exit(1)
+  if not r:
+    print "Failed to connect after 60 seconds. aborting. " + str(connect_time)
+    sys.exit(1)
 
-if r.status_code != 200:
-  print "Error getting permissions: " + str(r.status_code)
-  sys.exit(1)
+  if r.status_code != 200:
+    print "Error getting permissions: " + str(r.status_code)
+    sys.exit(1)
 
-creds = r.json()
+  creds = r.json()
+
+  exp = time.mktime(ciso8601.parse_datetime(creds['credentials']['expiration']).timetuple())
+  delay = exp - time.time() - 300
+  print 'Current time is ' + str(time.time())
+  print 'Credentials expire at ' + str(exp)
+  print 'Renewing in ' + str(delay)
+  renew = Timer(delay, get_credentials)
+  renew.start()
+
+  iot = boto3.client('iot-data', endpoint_url=iot_data_endpoint,
+                      aws_access_key_id=creds['credentials']['accessKeyId'],
+                      aws_secret_access_key=creds['credentials']['secretAccessKey'],
+                      aws_session_token=creds['credentials']['sessionToken'])
+
+
+get_credentials()
 
 #Get this device's flowmeter configurations from the cloud
 
@@ -107,7 +130,7 @@ item_response = dynamodb.get_item(TableName='devices',
 print item_response
 
 if not 'Item' in item_response:
-  print "Device not found: " + my_name  
+  print "Device not found: " + my_name
   sys.exit(1)
 
 item = item_response['Item']
@@ -120,7 +143,7 @@ else:
   print latest_version
   if StrictVersion(latest_version) > version:
     print 'Downloading new version from ' + item['piotflow_url']['S']
-	
+
     r = requests.get(item['piotflow_url']['S'], stream=True)
     #TODO: Avoid hardcoding this
     path = '/usr/sbin/piotflow/install.zip'
@@ -131,7 +154,7 @@ else:
     zip_ref = zipfile.ZipFile(path, 'r')
     zip_ref.extractall('/usr/sbin/piotflow')
     zip_ref.close()
-    sys.exit(2)    
+    sys.exit(2)
 
 if not 'configuration' in item_response['Item']:
   print "No configuration for " + my_name
@@ -144,9 +167,6 @@ device_configs = json.loads(item_response['Item']['configuration']['S'])['flowme
 #{'pin': 15, 'topic':flow_topic+"/2", 'id':my_name+"/2"}]
 
 
-#setup AWS IOT
-
-iot = boto3.client('iot-data', endpoint_url=iot_data_endpoint)
 flowmeter_configs = {}
 
 def flow_started(flowmeter):
@@ -158,7 +178,7 @@ def flow_update(flowmeter):
     cfg = flowmeter_configs[flowmeter]
     message = b'{"flowmeter_id":"%s", "cumulative_flow":%d, "flowing":true}'%(cfg['id'], flowmeter.count)
     iot.publish(topic=cfg['topic'],
-    qos=0, #We dont really need high QoS here as we'll be sending a bunch of updates 
+    qos=0, #We dont really need high QoS here as we'll be sending a bunch of updates
     payload=message)
     print "update: " + message
 
@@ -166,7 +186,7 @@ def flow_stopped(flowmeter):
     cfg = flowmeter_configs[flowmeter]
     message = b'{"flowmeter_id":"%s", "cumulative_flow":%d, "flowing":false}'%(cfg['id'], flowmeter.count)
     iot.publish(topic=cfg['topic'],
-    qos=1, #Use a higher QoS since this essetially sets the next stable state. Maybe even QoS level 2 should be used. 
+    qos=1, #Use a higher QoS since this essetially sets the next stable state. Maybe even QoS level 2 should be used.
     payload=message)
     print "Flow stopped: " + message
 
@@ -180,7 +200,7 @@ def monitor(flowmeter):
 RPIO.setmode(RPIO.BCM)
 threads = []
 for cfg in device_configs:
-    print "Settting up flowmeter %s on pin %d, publishing to %s" % (cfg['id'], cfg['pin'], cfg['topic']) 
+    print "Setting up flowmeter %s on pin %d, publishing to %s" % (cfg['id'], cfg['pin'], cfg['topic'])
     RPIO.setup(cfg['pin'], RPIO.IN, pull_up_down=RPIO.PUD_UP)
     flowmeter = FlowMeter(cfg['pin'])
     flowmeter_configs[flowmeter] = cfg
@@ -191,15 +211,23 @@ for cfg in device_configs:
 running=True
 
 def receive_signal(signum, stack):
+    global running
     running = False
-    print "Signal received"
-	
-signal.signal(signal.SIGUSR1, receive_signal)
+    print "Signal received. running is %s" % (str(running))
+
+signal.signal(signal.SIGTERM, receive_signal)
 
 try:
-   while(running):
-     time.sleep(5)
+    while(running):
+        time.sleep(5)
+        #print "looping, running is %s" % (str(running))
+    print "out of loop"
 finally:
+    print "stopping flowmeters"
     for flowmeter in flowmeter_configs:
+        print "Stopping flowmeter on pin %s" % (flowmeter.pin)
         flowmeter.stop()
+    print "Cleaning up GPIOs"
     RPIO.cleanup()
+    if renew:
+       renew.cancel()
