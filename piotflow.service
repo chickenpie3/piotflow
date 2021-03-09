@@ -1,0 +1,16 @@
+[Unit]
+Description=Flowmeter monitoring service
+Wants=network-online.target
+After=network-online.target
+WorkingDirectory=/usr/sbin/piotflow
+
+[Service]
+Type=simple
+# PreExecStart=-/usr/sbin/piotflow/update.py
+ExecStart=/usr/sbin/piotflow/piotflow.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+
