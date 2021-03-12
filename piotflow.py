@@ -16,7 +16,7 @@ import zipfile
 from threading import Timer
 import ciso8601
 
-version = StrictVersion("1.0")
+version = StrictVersion("1.1")
 
 def get_serial():
   # Extract serial from cpuinfo file
@@ -32,8 +32,6 @@ def get_serial():
     cpuserial = None
 
   return cpuserial
-
-
 
 my_name = get_serial()
 
@@ -106,6 +104,7 @@ def get_credentials():
   print 'Credentials expire at ' + str(exp)
   print 'Renewing in ' + str(delay)
   renew = Timer(delay, get_credentials)
+  renew.setDaemon(True)
   renew.start()
 
   iot = boto3.client('iot-data', endpoint_url=iot_data_endpoint,
@@ -151,9 +150,13 @@ else:
       for chunk in r.iter_content(chunk_size=300):
         fd.write(chunk)
       fd.flush()
+
+    print 'Download complete. Extracting package.'
     zip_ref = zipfile.ZipFile(path, 'r')
     zip_ref.extractall('/usr/sbin/piotflow')
     zip_ref.close()
+
+    print 'Package extracted. Exiting'
     sys.exit(2)
 
 if not 'configuration' in item_response['Item']:
@@ -196,7 +199,6 @@ def monitor(flowmeter):
     flowmeter.monitor(flow_started, flow_update, flow_stopped)
 
 #setup GPIO and flow meters
-#TODO actually use device config for pin and topic
 RPIO.setmode(RPIO.BCM)
 threads = []
 for cfg in device_configs:
@@ -209,6 +211,23 @@ for cfg in device_configs:
     t.start()
 
 running=True
+
+# Setup reporting
+reporter = None
+def report():
+  global reporter
+  print "reporting"
+  message = b'{"device_id":"%s"}'%(my_name)
+  iot.publish(
+    topic="report/" + my_name,
+    qos=1, # Ensure delivery to avoid false alarms
+    payload=message
+  )
+  reporter = Timer(6*60*60, report) # Report every 6 hours
+  reporter.setDaemon(True)
+  reporter.start()
+
+report()
 
 def receive_signal(signum, stack):
     global running
@@ -230,4 +249,6 @@ finally:
     print "Cleaning up GPIOs"
     RPIO.cleanup()
     if renew:
-       renew.cancel()
+      renew.cancel()
+    if reporter:
+      reporter.cancel()
