@@ -218,11 +218,15 @@ def report():
   global reporter
   print "reporting"
   message = b'{"device_id":"%s"}'%(my_name)
-  iot.publish(
-    topic="report/" + my_name,
-    qos=1, # Ensure delivery to avoid false alarms
-    payload=message
-  )
+  try:
+    iot.publish(
+      topic="report/" + my_name,
+      qos=1, # Ensure delivery to avoid false alarms
+      payload=message
+    )
+  except Exception as e:
+    print e
+    
   reporter = Timer(6*60*60, report) # Report every 6 hours
   reporter.setDaemon(True)
   reporter.start()
