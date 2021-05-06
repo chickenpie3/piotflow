@@ -16,7 +16,7 @@ import zipfile
 from threading import Timer
 import ciso8601
 
-version = StrictVersion("1.1")
+version = StrictVersion("1.2")
 
 def get_serial():
   # Extract serial from cpuinfo file
@@ -226,7 +226,7 @@ def report():
     )
   except Exception as e:
     print e
-    
+
   reporter = Timer(6*60*60, report) # Report every 6 hours
   reporter.setDaemon(True)
   reporter.start()

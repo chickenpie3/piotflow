@@ -55,7 +55,7 @@ artifacts:
   files:
     - piotflow.py
     - flowmeter.py
-  name: 1.1/piotflow.zip
+  name: 1.2/piotflow.zip
 #   discard-paths: no | yes
 #   base-directory: location
 #   exclude-paths: excluded paths
