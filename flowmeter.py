@@ -3,7 +3,7 @@ import sys
 import threading
 
 class FlowMeter:
-    
+
     def __init__(self, pin):
         self.pin = pin
         self.count = 0
@@ -44,9 +44,9 @@ class FlowMeter:
             self.count = 0
         finally:
             self.flow_lock.release()
-    
+
     def monitor(self, start, update, end):
-        self.monitoring = True;
+        self.monitoring = True
         self.count = 0
         self.flow_started = False
         self.start_event = start
@@ -57,7 +57,7 @@ class FlowMeter:
                                     edge=self.gpio_edge_event,
                                     threaded_callback=True)
         RPIO.wait_for_interrupts()
-                
+
     def stop(self):
         RPIO.stop_waiting_for_interrupts()
         self.flow_started = False
@@ -65,5 +65,5 @@ class FlowMeter:
 
     def flowing(self):
         return self.flow_started
-    
-        
+
+

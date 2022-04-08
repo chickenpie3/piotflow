@@ -178,12 +178,13 @@ def flow_started(flowmeter):
     print "Flow started on " + cfg['id']
 
 def flow_update(flowmeter):
-    cfg = flowmeter_configs[flowmeter]
-    message = b'{"flowmeter_id":"%s", "cumulative_flow":%d, "flowing":true}'%(cfg['id'], flowmeter.count)
-    iot.publish(topic=cfg['topic'],
-    qos=0, #We dont really need high QoS here as we'll be sending a bunch of updates
-    payload=message)
-    print "update: " + message
+    #Ignore pulses emitted by the flowmeter for no reason
+    if flowmeter.count > 2:
+      message = b'{"flowmeter_id":"%s", "cumulative_flow":%d, "flowing":true}'%(cfg['id'], flowmeter.count)
+      iot.publish(topic=cfg['topic'],
+      qos=0, #We dont really need high QoS here as we'll be sending a bunch of updates
+      payload=message)
+      print "update: " + message
 
 def flow_stopped(flowmeter):
     cfg = flowmeter_configs[flowmeter]
