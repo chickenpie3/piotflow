@@ -16,7 +16,7 @@ import zipfile
 from threading import Timer
 import ciso8601
 
-version = StrictVersion("1.2")
+version = StrictVersion("1.3")
 
 def get_serial():
   # Extract serial from cpuinfo file
