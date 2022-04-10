@@ -16,7 +16,7 @@ import zipfile
 from threading import Timer
 import ciso8601
 
-version = StrictVersion("1.3")
+version = StrictVersion("1.3.1")
 
 def get_serial():
   # Extract serial from cpuinfo file
@@ -178,6 +178,7 @@ def flow_started(flowmeter):
     print "Flow started on " + cfg['id']
 
 def flow_update(flowmeter):
+    cfg = flowmeter_configs[flowmeter]
     #Ignore pulses emitted by the flowmeter for no reason
     if flowmeter.count > 2:
       message = b'{"flowmeter_id":"%s", "cumulative_flow":%d, "flowing":true}'%(cfg['id'], flowmeter.count)
